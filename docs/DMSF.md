@@ -18,6 +18,8 @@ DMSF's optional `xapian` Bundler group is excluded to keep the production image 
 
 The WebDAV middleware is included, but WebDAV is disabled by default in DMSF settings. Enable it only after reviewing authentication, TLS, client behavior, and audit requirements.
 
+During asset compilation, DMSF 4.1.3 can emit warnings for file-type PNG paths referenced by its CSS but absent from the tagged release archive. These are upstream cosmetic warnings and do not cause the database migration failure. Confirm the DMSF page layout/icons during browser acceptance testing; do not treat warnings as proof that migrations succeeded.
+
 ## Migration and verification commands
 
 ```bash

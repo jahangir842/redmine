@@ -33,6 +33,23 @@ Image tags pin application/OS release versions but registry tags can technically
 
 The first PostgreSQL initialization creates a dedicated non-superuser application role and database. `POSTGRES_USER` is only the cluster administrator. Changing `.env` later does not rotate credentials inside an existing database; use `ALTER ROLE`, then update `.env` in a controlled maintenance window.
 
+### Fresh-install credential mismatch
+
+PostgreSQL executes `docker-entrypoint-initdb.d` only when its data directory is empty. A volume created during an earlier attempt retains the old role password even if `.env` is edited. The authenticated health check detects this condition.
+
+If—and only if—this is a new test installation with no database or attachments to keep, review the target and recreate its volumes:
+
+```bash
+docker compose ps
+docker compose config --volumes
+docker compose down -v
+docker compose up -d postgres
+docker compose logs postgres
+docker compose exec postgres sh -ec 'PGPASSWORD="$REDMINE_DB_PASSWORD" psql -h 127.0.0.1 -U "$REDMINE_DB_USERNAME" -d "$REDMINE_DB_DATABASE" -tAc "select current_user, current_database()"'
+```
+
+The expected final output identifies the configured Redmine user and database. Do not use `down -v` after any data has been entered; rotate the existing role password or restore into a controlled destination instead.
+
 ## HTTPS and upstream proxy
 
 The included Nginx intentionally serves internal HTTP only and accepts `X-Forwarded-Proto` from a trusted upstream. Terminate TLS at a managed host Nginx, load balancer, Cloudflare tunnel/proxy, or internal reverse proxy, then forward to `127.0.0.1:${REDMINE_PORT}`. The upstream should:

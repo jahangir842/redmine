@@ -121,7 +121,7 @@ Re-check Redmine/DMSF compatibility, restore the latest backup into a disposable
 ## Troubleshooting
 
 - `docker compose config` reports a missing variable: populate every required `.env` value.
-- PostgreSQL is unhealthy: inspect `docker compose logs postgres`; changing init credentials after the volume exists does not alter existing roles.
+- PostgreSQL reports password authentication failure: the named volume was probably initialized with older credentials (or before the database-init script existed). Environment changes never rewrite roles in an existing PostgreSQL volume. For a brand-new installation with no data to retain, inspect the targeted volumes with `docker compose config --volumes`, then deliberately reset them with `docker compose down -v` and repeat the first-install commands. Never do this after real data exists.
 - Redmine reports pending migrations: run the two migration commands above, then `docker compose restart`.
 - DMSF is missing: rebuild the image and inspect `docker compose exec redmine bundle check` and the plugin list command above.
 - Proxy returns 502/503: wait for the Redmine health check, then run `./scripts/healthcheck.sh` and `docker compose logs`.

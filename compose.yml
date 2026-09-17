@@ -17,7 +17,7 @@ services:
     networks:
       - backend
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$$REDMINE_DB_USERNAME\" -d \"$$REDMINE_DB_DATABASE\""]
+      test: ["CMD-SHELL", "PGPASSWORD=\"$$REDMINE_DB_PASSWORD\" psql --host=127.0.0.1 --username=\"$$REDMINE_DB_USERNAME\" --dbname=\"$$REDMINE_DB_DATABASE\" --tuples-only --command='SELECT 1' | grep -q 1"]
       interval: 10s
       timeout: 5s
       retries: 12
