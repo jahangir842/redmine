@@ -1,0 +1,12 @@
+.git
+.env
+backups
+offline-bundles
+docs
+README.md
+*.dump
+*.tar
+*.tar.gz
+*.tgz
+*.key
+*.pem
