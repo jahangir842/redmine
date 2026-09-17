@@ -45,7 +45,11 @@ Open `http://127.0.0.1:8080` (or the configured bind address/port). The initial 
 
 `make install` deliberately runs core and plugin migrations as explicit deployment steps before starting the complete stack. Normal container starts do not run migrations.
 
-## Operations
+## Configuration
+
+`.env` controls the bind address/port, canonical hostname, separate database administrator/application credentials, Rails secret, and local image name. `compose.yml` controls services and volumes; Nginx is configured in `docker/nginx/nginx.conf`. Keep `.env` mode 0600 and never commit it. See [Installation and upgrade](docs/INSTALLATION.md) and [Security](docs/SECURITY.md).
+
+## Build, start, stop, and logs
 
 ```bash
 make build              # build the immutable Redmine+DMSF image
@@ -56,22 +60,49 @@ make logs
 make status
 make health
 make verify             # versions, migrations, DMSF, container-recreate persistence
-make migrate            # explicit Redmine core migration
-make plugins-migrate    # explicit plugin migrations
-make backup
-make restore BACKUP=backups/2026-09-17_120000
-make offline-bundle
 ```
 
 Never use `docker compose down -v` unless intentionally destroying all database and attachment data.
 
-## Verify DMSF
+## Database and plugin migrations
+
+```bash
+make migrate            # explicit Redmine core migration
+make plugins-migrate    # explicit plugin migrations
+```
+
+Run migrations first on a restored test copy and take a verified backup before production schema changes.
+
+## Backup and restore
+
+```bash
+make backup
+make restore BACKUP=backups/2026-09-17_120000
+```
+
+Restore is destructive to the configured destination and requires typed confirmation. See [Backup and restore](docs/BACKUP_RESTORE.md).
+
+## DMSF
 
 Log in as an administrator and open **Administration → Plugins**. `DMSF 4.1.3` must be listed. Then enable the **DMSF** module in a test project and configure its role permissions. From the CLI:
 
 ```bash
 docker compose exec redmine bundle exec rake redmine:plugins RAILS_ENV=production
 ```
+
+Compatibility, optional full-text search, WebDAV, and acceptance tests are documented in [DMSF compatibility and operation](docs/DMSF.md).
+
+## Migration from old Redmine
+
+Export a logical database dump and the attachment files from the quiesced Redmine 4.2.5 system, then restore and migrate only in an isolated temporary copy. Inventory and replace plugins with target-compatible releases; never copy old plugin code or Podman volumes. Follow [Migration from Redmine 4.2.5](docs/MIGRATION.md).
+
+## Offline deployment
+
+On an Internet-connected build host run `make offline-bundle`, transfer and verify the resulting image/source archives, then use `docker load` on the isolated host. Follow [Offline deployment](docs/OFFLINE_DEPLOYMENT.md).
+
+## Upgrade procedure
+
+Re-check Redmine/DMSF compatibility, restore the latest backup into a disposable environment, rebuild pinned images, run core then plugin migrations, execute `make verify` and browser workflow tests, and only then schedule production maintenance. See [Installation and upgrade](docs/INSTALLATION.md).
 
 ## Documentation
 
