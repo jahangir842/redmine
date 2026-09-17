@@ -1,112 +1,591 @@
-# Production Redmine + DMSF
+# Production Redmine with DMSF
 
-A Docker Compose deployment for Redmine 6.1.4 (Ruby 3.4.10 / Rails 7.2.3.2), DMSF 4.1.3, PostgreSQL 16.15, and Nginx 1.30.5. It is designed for ordinary project management and controlled QMS/SOP documents, with reproducible plugin installation, backups, disaster recovery, migration testing, and offline deployment.
+This repository deploys a pinned Redmine stack using Docker Compose. It is
+intended for project management, DMSF document management, and controlled
+QMS/SOP use.
 
-The latest Redmine release is not used blindly: Redmine 7.0.1 is newer, but DMSF 4.1.3 only declares Redmine 6 compatibility. Redmine 6.1.4 is the newest supported 6.x release and is therefore the newest evidenced-compatible choice. See [DMSF compatibility](docs/DMSF.md).
+## Pinned versions
 
-## Requirements
+| Component | Version |
+| --- | --- |
+| Redmine | 6.1.4 |
+| Ruby | 3.4.10 (from the Redmine image) |
+| Rails | 7.2.3.2 (from Redmine) |
+| DMSF | 4.1.3 |
+| PostgreSQL | 16.15, Debian Bookworm image |
+| Nginx | 1.30.5, Alpine 3.24 image |
 
-- Linux host with Docker Engine 24+ and Docker Compose v2
-- 2 CPU, 4 GiB RAM, and storage sized for the database, attachments, and backups
-- Bash, `openssl`, `sha256sum`, and `tar`
-- Internet access only while pulling/building, or a prepared offline bundle
+The deployment never uses a `latest` image tag. The versions above describe
+this tested deployment and do not update automatically. Re-check Redmine and
+DMSF compatibility before changing either version. See
+[DMSF compatibility](docs/DMSF.md).
 
 ## Architecture
 
 ```text
-Client / upstream TLS proxy
-          |
-          v  host port 8080 by default
-        Nginx
-          |
-          v  frontend network
-       Redmine + DMSF
-          |
-          v  internal backend network
-      PostgreSQL
+Browser / upstream TLS reverse proxy
+                  |
+                  v  127.0.0.1:8080 by default
+                Nginx
+                  |
+                  v  frontend Docker network
+            Redmine + DMSF
+                  |
+                  v  internal backend Docker network
+              PostgreSQL
 ```
 
-Only Nginx publishes a host port. PostgreSQL has no host port and its Docker network is marked internal. Only the database data and `/usr/src/redmine/files` are persisted; application/plugin code remains in the image.
+Only Nginx publishes a host port. PostgreSQL is not exposed on the host, and
+the backend Docker network is internal. Named volumes persist:
 
-## First installation
+- `postgres_data`: PostgreSQL database cluster
+- `redmine_files`: Redmine attachments and DMSF documents
+
+Application and plugin code remain immutable inside the custom image. The
+whole `/usr/src/redmine` application directory is deliberately not mounted as
+a volume.
+
+## Requirements
+
+Prepare a Linux host with:
+
+- Docker Engine 24 or newer
+- Docker Compose v2 (`docker compose`, not legacy `docker-compose`)
+- Git, Bash, OpenSSL, `sha256sum`, and `tar`
+- At least 2 CPU cores and 4 GiB RAM
+- Enough storage for the database, attachments, images, and backups
+- Internet access during the initial image pull/build, or an offline bundle
+
+Verify Docker before continuing:
+
+```bash
+docker version
+docker compose version
+docker run --rm hello-world
+```
+
+These instructions assume the current user can access Docker. If your host
+requires root access, prefix Docker commands with `sudo` and run repository
+scripts with `sudo`, as in `sudo ./scripts/healthcheck.sh`.
+
+## Fresh installation on a new system
+
+This section creates an empty Redmine installation. It does not import the old
+Redmine 4.2.5 database.
+
+### 1. Obtain the repository
+
+Clone the repository and enter it:
+
+```bash
+git clone <YOUR_REPOSITORY_URL> redmine
+cd redmine
+```
+
+Alternatively, extract a trusted source archive. Ensure scripts remain
+executable:
+
+```bash
+chmod 750 scripts/*.sh
+```
+
+Check that the expected files exist:
+
+```bash
+test -f compose.yml
+test -f docker/redmine/Dockerfile
+test -f docker/postgres/init-redmine-db.sh
+test -f docker/nginx/nginx.conf
+test -f .env.example
+```
+
+### 2. Create configuration and secrets
+
+Create the private environment file:
 
 ```bash
 cp .env.example .env
-openssl rand -base64 36   # use for each database password
-openssl rand -hex 64      # use for REDMINE_SECRET_KEY_BASE
 chmod 600 .env
-# edit .env and replace every CHANGE_ME value
-docker compose --env-file .env config
-docker compose build redmine
-docker compose up -d --wait postgres
-docker compose run --rm redmine bundle exec rake db:migrate RAILS_ENV=production
-docker compose run --rm redmine bundle exec rake redmine:plugins:migrate RAILS_ENV=production
-docker compose up -d
-./scripts/healthcheck.sh
 ```
 
-Open `http://127.0.0.1:8080` (or the configured bind address/port). The initial Redmine credentials are `admin` / `admin`; change the password immediately, set the canonical host/protocol under Administration, and configure SMTP before production use.
-
-The explicit commands above run core and plugin migrations before starting the complete stack. Normal container starts do not run migrations.
-
-## Configuration
-
-`.env` controls the bind address/port, canonical hostname, separate database administrator/application credentials, Rails secret, and local image name. `compose.yml` controls services and volumes; Nginx is configured in `docker/nginx/nginx.conf`. Keep `.env` mode 0600 and never commit it. See [Installation and upgrade](docs/INSTALLATION.md) and [Security](docs/SECURITY.md).
-
-## Build, start, stop, and logs
+Generate three independent values. Do not reuse a password:
 
 ```bash
-docker compose build redmine
+openssl rand -base64 48   # REDMINE_DB_PASSWORD
+openssl rand -base64 48   # POSTGRES_PASSWORD
+openssl rand -hex 64      # REDMINE_SECRET_KEY_BASE
+```
+
+Edit `.env` and replace every `CHANGE_ME` value:
+
+```bash
+nano .env
+```
+
+At minimum, review these settings:
+
+```dotenv
+COMPOSE_PROJECT_NAME=redmine
+
+REDMINE_BIND_ADDRESS=127.0.0.1
+REDMINE_HOST=redmine.example.internal
+REDMINE_PORT=8080
+
+REDMINE_DB_DATABASE=redmine
+REDMINE_DB_USERNAME=redmine
+REDMINE_DB_PASSWORD=<random application database password>
+
+POSTGRES_DB=postgres
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=<different random PostgreSQL administrator password>
+
+REDMINE_SECRET_KEY_BASE=<random 128-character hex value>
+REDMINE_IMAGE=local/redmine-dmsf:6.1.4-dmsf4.1.3
+MIGRATION_MODE=false
+```
+
+Important configuration rules:
+
+- Keep `REDMINE_SECRET_KEY_BASE` permanently. Changing or losing it can
+  invalidate sessions and encrypted application data.
+- Keep `COMPOSE_PROJECT_NAME` stable. Docker uses it when naming the persistent
+  volumes.
+- Database and role names may contain only letters, digits, underscores, and
+  hyphens.
+- Keep `.env` private and never commit it. It is already excluded by
+  `.gitignore`.
+- Leave `REDMINE_BIND_ADDRESS=127.0.0.1` when another host reverse proxy will
+  provide HTTPS. Use `0.0.0.0` only when LAN access to port 8080 is intended
+  and protected by the host firewall.
+
+Confirm there are no unresolved example values:
+
+```bash
+if grep -n 'CHANGE_ME' .env; then
+  echo 'Replace every CHANGE_ME value before continuing'
+  exit 1
+fi
+```
+
+### 3. Validate and build
+
+Render and validate the Compose configuration without printing `.env`:
+
+```bash
+docker compose config --quiet
+```
+
+Pull the third-party runtime images and build the custom Redmine image:
+
+```bash
+docker compose pull postgres nginx
+docker compose build --pull redmine
+```
+
+The Redmine build downloads the pinned DMSF release, verifies its SHA-256
+checksum, and installs all Ruby dependencies into the image. Container startup
+does not run `bundle install` and therefore does not require Internet access.
+
+Confirm the expected image is present:
+
+```bash
+docker image inspect local/redmine-dmsf:6.1.4-dmsf4.1.3 >/dev/null
+```
+
+### 4. Initialize PostgreSQL
+
+Start only PostgreSQL and wait for its authenticated health check:
+
+```bash
+docker compose up -d --wait --wait-timeout 120 postgres
+```
+
+On the first start, `docker/postgres/init-redmine-db.sh` creates the dedicated
+Redmine role and database. Verify that the application credentials work:
+
+```bash
+docker compose exec postgres sh -ec \
+  'PGPASSWORD="$REDMINE_DB_PASSWORD" psql \
+    --host=127.0.0.1 \
+    --username="$REDMINE_DB_USERNAME" \
+    --dbname="$REDMINE_DB_DATABASE" \
+    --tuples-only \
+    --command="select current_user, current_database()"'
+```
+
+Expected result:
+
+```text
+ redmine | redmine
+```
+
+If PostgreSQL is unhealthy, inspect it before doing anything destructive:
+
+```bash
+docker compose ps
+docker compose logs --tail=200 postgres
+```
+
+### 5. Run database migrations
+
+Core and plugin migrations are explicit deployment operations. They are not
+run while building the image or during normal container startup:
+
+```bash
+docker compose run --rm redmine \
+  bundle exec rake db:migrate RAILS_ENV=production
+
+docker compose run --rm redmine \
+  bundle exec rake redmine:plugins:migrate RAILS_ENV=production
+```
+
+The asset-related warning output produced while Rails loads DMSF does not by
+itself mean that a migration failed. The command must finish with exit status
+zero. Check it immediately if necessary:
+
+```bash
+echo $?
+```
+
+### 6. Start and verify the complete stack
+
+```bash
+docker compose up -d --wait --wait-timeout 180
+docker compose ps
+./scripts/healthcheck.sh --wait
+```
+
+All three services should show `healthy`. Run the deeper deployment check:
+
+```bash
+./scripts/verify-deployment.sh
+```
+
+This verifies runtime versions, database migrations, DMSF registration, HTTP
+health, and attachment persistence across a Redmine container recreation.
+It also restarts Nginx after the recreation so that its upstream connection is
+refreshed.
+
+Open the configured endpoint. With the example local binding it is:
+
+```text
+http://127.0.0.1:8080
+```
+
+The initial Redmine credentials are:
+
+```text
+Username: admin
+Password: admin
+```
+
+Change the administrator password immediately.
+
+### 7. Complete first-login configuration
+
+Before production use:
+
+1. Change the default administrator password.
+2. Open **Administration → Settings → General** and set the host name and path.
+3. Select HTTPS as the protocol once TLS termination is configured.
+4. Disable self-registration unless it is intentionally required.
+5. Configure SMTP and test outgoing mail.
+6. Set the attachment size limit to agree with Nginx's 100 MiB limit.
+7. Open **Administration → Plugins** and confirm DMSF 4.1.3 is listed.
+8. Create a test project and enable **DMSF** under **Project settings → Modules**.
+9. Configure DMSF permissions under **Administration → Roles and permissions**.
+10. Perform the DMSF and QMS acceptance tests in [docs/DMSF.md](docs/DMSF.md)
+    and [docs/QMS_DESIGN.md](docs/QMS_DESIGN.md).
+
+## Normal operation
+
+```bash
+# Start or apply Compose changes
 docker compose up -d
-docker compose down              # preserves named volumes
+
+# Stop containers while preserving all named volumes
+docker compose down
+
+# Restart services
 docker compose restart
-docker compose logs -f --tail=200
+
+# Inspect status and health
 docker compose ps
 ./scripts/healthcheck.sh
-./scripts/verify-deployment.sh   # versions, migrations, DMSF, persistence
+
+# Follow all logs
+docker compose logs --tail=200 --follow
+
+# Follow one service
+docker compose logs --tail=200 --follow redmine
 ```
 
-Never use `docker compose down -v` unless intentionally destroying all database and attachment data.
+Never run `docker compose down -v` on an installation containing data. The
+`-v` option deletes both the PostgreSQL and attachment volumes.
 
-## Database and plugin migrations
+## Verify DMSF
+
+List registered plugins:
 
 ```bash
-docker compose run --rm redmine bundle exec rake db:migrate RAILS_ENV=production
-docker compose run --rm redmine bundle exec rake redmine:plugins:migrate RAILS_ENV=production
+docker compose exec redmine \
+  bundle exec rake redmine:plugins RAILS_ENV=production
 ```
 
-Run migrations first on a restored test copy and take a verified backup before production schema changes.
+The output must include `redmine_dmsf` version 4.1.3. Also verify it through
+**Administration → Plugins**, enable it in a test project, upload a document,
+create a new version, and confirm its history and permissions.
 
-## Backup and restore
+## Optional free Agile board
+
+Redmine Agile is not currently included in this repository image. If required,
+use the free **Redmine Agile Light** package that explicitly supports Redmine
+6.1. Do not copy it manually into a running container because it will disappear
+on recreation.
+
+The safe installation model is:
+
+1. Download a pinned Light release from the vendor.
+2. Record and verify its SHA-256 checksum.
+3. Exclude the downloaded ZIP from Git.
+4. Copy and extract it as `plugins/redmine_agile` in the Dockerfile.
+5. Run `bundle install` during the image build, after both DMSF and Agile are
+   present.
+6. Build a newly tagged custom image.
+7. Take a backup.
+8. Run the plugin migration explicitly:
+
+```bash
+docker compose run --rm redmine \
+  bundle exec rake redmine:plugins:migrate \
+  NAME=redmine_agile RAILS_ENV=production
+```
+
+9. Recreate Redmine and Nginx, then enable **Agile** under the project's
+   **Settings → Modules** page.
+
+Keep the downloaded package in the controlled deployment material for offline
+rebuilds, but do not commit it unless its distribution terms explicitly permit
+that. Test plugin upgrades on a restored non-production copy first.
+
+## Backup
+
+Create a consistent database and attachment backup:
 
 ```bash
 ./scripts/backup.sh
-./scripts/restore.sh backups/2026-09-17_120000
 ```
 
-Restore is destructive to the configured destination and requires typed confirmation. See [Backup and restore](docs/BACKUP_RESTORE.md).
+The script briefly stops Nginx and Redmine, creates a PostgreSQL custom-format
+dump and attachment archive, writes version metadata, calculates SHA-256
+checksums, and restarts the services that were previously running.
 
-## DMSF
+A backup resembles:
 
-Log in as an administrator and open **Administration → Plugins**. `DMSF 4.1.3` must be listed. Then enable the **DMSF** module in a test project and configure its role permissions. From the CLI:
+```text
+backups/2026-09-17_120000/
+├── checksums.sha256
+├── metadata.txt
+├── redmine.dump
+└── redmine-files.tar.gz
+```
+
+Copy backups to encrypted storage outside this Docker host and test restoration
+regularly. A backup remaining only on the application host is not sufficient
+for disaster recovery. See [Backup and restore](docs/BACKUP_RESTORE.md).
+
+## Restore on another system
+
+To move the current installation rather than create an empty Redmine:
+
+1. Install Docker and obtain this same repository revision.
+2. Copy the original `.env` securely, especially
+   `REDMINE_SECRET_KEY_BASE`. If intentionally rotating database passwords,
+   complete and test that procedure separately.
+3. Build or load the exact image versions.
+4. Copy one complete backup directory into `backups/`.
+5. Validate Compose and start PostgreSQL:
 
 ```bash
-docker compose exec redmine bundle exec rake redmine:plugins RAILS_ENV=production
+docker compose config --quiet
+docker compose build redmine
+docker compose up -d --wait --wait-timeout 120 postgres
 ```
 
-Compatibility, optional full-text search, WebDAV, and acceptance tests are documented in [DMSF compatibility and operation](docs/DMSF.md).
+6. Restore the chosen backup:
 
-## Migration from old Redmine
+```bash
+./scripts/restore.sh backups/YYYY-MM-DD_HHMMSS
+```
 
-Export a logical database dump and the attachment files from the quiesced Redmine 4.2.5 system, then restore and migrate only in an isolated temporary copy. Inventory and replace plugins with target-compatible releases; never copy old plugin code or Podman volumes. Follow [Migration from Redmine 4.2.5](docs/MIGRATION.md).
+The restore command validates checksums and requires typing `RESTORE` before it
+replaces the configured destination database and attachments. Afterward:
 
-## Offline deployment
+```bash
+./scripts/verify-deployment.sh
+```
 
-On an Internet-connected build host run `./scripts/prepare-offline-bundle.sh`, transfer and verify the resulting image/source archives, then use `docker load` on the isolated host. Follow [Offline deployment](docs/OFFLINE_DEPLOYMENT.md).
+Complete browser-level validation before declaring the restored system usable.
+
+## Database and plugin migrations
+
+Use these commands after a tested application or plugin upgrade:
+
+```bash
+docker compose run --rm redmine \
+  bundle exec rake db:migrate RAILS_ENV=production
+
+docker compose run --rm redmine \
+  bundle exec rake redmine:plugins:migrate RAILS_ENV=production
+```
+
+Always back up first and test migrations against a restored copy. Never point a
+migration test at the old production Redmine database.
 
 ## Upgrade procedure
 
-Re-check Redmine/DMSF compatibility, restore the latest backup into a disposable environment, rebuild pinned images, run core then plugin migrations, execute `./scripts/verify-deployment.sh` and browser workflow tests, and only then schedule production maintenance. See [Installation and upgrade](docs/INSTALLATION.md).
+1. Read the target Redmine and plugin release notes.
+2. Confirm Redmine, Ruby, Rails, DMSF, and all other plugin compatibility.
+3. Pin every new image and plugin release; update checksums.
+4. Create and verify a production backup.
+5. Restore it into a disposable Compose project and rehearse the upgrade.
+6. Build the new image; never install plugins in a running container.
+7. Stop user traffic and run core migrations followed by plugin migrations.
+8. Recreate Redmine and Nginx.
+9. Run `scripts/verify-deployment.sh` and browser/DMSF workflow tests.
+10. Retain the pre-upgrade backup until acceptance is complete.
+
+See [Installation and upgrade](docs/INSTALLATION.md).
+
+## Migration from Redmine 4.2.5
+
+Do not copy Podman volumes or old plugin source into this deployment. The
+future migration uses:
+
+```text
+old Redmine 4.2.5 logical database dump + attachment files
+                            |
+                            v
+              isolated temporary migration copy
+                            |
+                            v
+               core and compatible plugin migrations
+                            |
+                            v
+                    functional validation
+```
+
+Inventory old plugins, install only compatible target releases, rehearse the
+entire operation, and preserve the source system unchanged. Follow
+[Migration from Redmine 4.2.5](docs/MIGRATION.md).
+
+## Offline deployment
+
+On an Internet-connected machine, prepare an image and source bundle:
+
+```bash
+./scripts/prepare-offline-bundle.sh
+```
+
+Transfer the resulting bundle and checksums to the isolated server, verify it,
+and load its Docker image archive with `docker load`. After the images and
+configuration are present, startup and normal operation do not require
+Internet access. Follow [Offline deployment](docs/OFFLINE_DEPLOYMENT.md).
+
+## Troubleshooting
+
+### Compose reports a missing variable
+
+Populate every required `.env` value, then run:
+
+```bash
+docker compose config --quiet
+```
+
+### PostgreSQL says role `redmine` does not exist
+
+First wait for initialization and inspect the complete log:
+
+```bash
+docker compose up -d --wait --wait-timeout 120 postgres
+docker compose logs --tail=300 postgres
+```
+
+On an empty installation only, the idempotent bootstrap can be run again:
+
+```bash
+docker compose exec postgres /docker-entrypoint-initdb.d/10-redmine-db.sh
+docker compose up -d --wait --wait-timeout 120 postgres
+```
+
+Do not use that command as an unreviewed password-rotation procedure on an
+existing production system.
+
+### PostgreSQL password authentication fails
+
+Changing `.env` does not modify credentials already stored in a PostgreSQL
+volume. Restore the original matching `.env` or perform a deliberate database
+password rotation. For a genuinely new and disposable installation with no
+data, you may start again with:
+
+```bash
+docker compose down -v
+docker compose up -d --wait --wait-timeout 120 postgres
+```
+
+This deletes all database and attachment data. Never use it after real data has
+been created.
+
+### Redmine is unhealthy
+
+```bash
+docker compose ps
+docker compose logs --tail=300 postgres redmine
+docker compose exec redmine wget -S -O /dev/null http://127.0.0.1:3000/login
+```
+
+If migrations are pending, run both migration commands and recreate Redmine.
+
+### Login redirects to the wrong port
+
+This repository preserves the incoming host and port using Nginx's
+`X-Forwarded-Host` header. Ensure the current `docker/nginx/nginx.conf` is in
+use, then recreate both services:
+
+```bash
+docker compose up -d --force-recreate redmine nginx
+```
+
+Also configure Redmine's canonical hostname and protocol to match the URL used
+by clients.
+
+### Nginx returns 502 or 503
+
+Wait for Redmine to become healthy, then restart Nginx so that it reconnects to
+the current Redmine container address:
+
+```bash
+./scripts/healthcheck.sh --wait
+docker compose restart nginx
+docker compose logs --tail=200 nginx redmine
+```
+
+### DMSF does not appear
+
+```bash
+docker compose exec redmine bundle check
+docker compose exec redmine \
+  bundle exec rake redmine:plugins RAILS_ENV=production
+docker compose logs --tail=300 redmine
+```
+
+If the custom image was not built on this host, build it and recreate Redmine.
+
+### Upload is rejected
+
+Nginx permits requests up to 100 MiB. Coordinate any change to
+`client_max_body_size` with Redmine's attachment-size setting and available
+storage.
 
 ## Documentation
 
@@ -118,13 +597,6 @@ Re-check Redmine/DMSF compatibility, restore the latest backup into a disposable
 - [Security](docs/SECURITY.md)
 - [QMS/SOP design](docs/QMS_DESIGN.md)
 
-## Troubleshooting
-
-- `docker compose config` reports a missing variable: populate every required `.env` value.
-- PostgreSQL reports password authentication failure: the named volume was probably initialized with older credentials (or before the database-init script existed). Environment changes never rewrite roles in an existing PostgreSQL volume. For a brand-new installation with no data to retain, inspect the targeted volumes with `docker compose config --volumes`, then deliberately reset them with `docker compose down -v` and repeat the first-install commands. Never do this after real data exists.
-- Redmine reports pending migrations: run the two migration commands above, then `docker compose restart`.
-- DMSF is missing: rebuild the image and inspect `docker compose exec redmine bundle check` and the plugin list command above.
-- Proxy returns 502/503: wait for the Redmine health check, then run `./scripts/healthcheck.sh` and `docker compose logs`.
-- Upload is rejected: Nginx defaults to 100 MiB; coordinate changes to `client_max_body_size` with Redmine's attachment limit.
-
-Before production, complete the manual checklist in [Installation](docs/INSTALLATION.md), perform a full backup/restore drill, test migration on an isolated copy, validate RBAC/workflows, configure TLS/SMTP, and establish monitoring and patch review.
+Before production use, complete a backup/restore drill, configure TLS and SMTP,
+validate roles and workflows, test DMSF document versioning and permissions,
+establish monitoring, and document the maintenance and patch-review process.
