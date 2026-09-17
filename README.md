@@ -8,7 +8,7 @@ The latest Redmine release is not used blindly: Redmine 7.0.1 is newer, but DMSF
 
 - Linux host with Docker Engine 24+ and Docker Compose v2
 - 2 CPU, 4 GiB RAM, and storage sized for the database, attachments, and backups
-- `make`, Bash, `openssl`, `sha256sum`, and `tar`
+- Bash, `openssl`, `sha256sum`, and `tar`
 - Internet access only while pulling/building, or a prepared offline bundle
 
 ## Architecture
@@ -37,13 +37,17 @@ openssl rand -hex 64      # use for REDMINE_SECRET_KEY_BASE
 chmod 600 .env
 # edit .env and replace every CHANGE_ME value
 docker compose --env-file .env config
-make install
-make health
+docker compose build redmine
+docker compose up -d postgres
+docker compose run --rm redmine bundle exec rake db:migrate RAILS_ENV=production
+docker compose run --rm redmine bundle exec rake redmine:plugins:migrate RAILS_ENV=production
+docker compose up -d
+./scripts/healthcheck.sh
 ```
 
 Open `http://127.0.0.1:8080` (or the configured bind address/port). The initial Redmine credentials are `admin` / `admin`; change the password immediately, set the canonical host/protocol under Administration, and configure SMTP before production use.
 
-`make install` deliberately runs core and plugin migrations as explicit deployment steps before starting the complete stack. Normal container starts do not run migrations.
+The explicit commands above run core and plugin migrations before starting the complete stack. Normal container starts do not run migrations.
 
 ## Configuration
 
@@ -52,14 +56,14 @@ Open `http://127.0.0.1:8080` (or the configured bind address/port). The initial 
 ## Build, start, stop, and logs
 
 ```bash
-make build              # build the immutable Redmine+DMSF image
-make up                 # start an already-installed stack
-make down               # stop/remove containers, preserve volumes
-make restart
-make logs
-make status
-make health
-make verify             # versions, migrations, DMSF, container-recreate persistence
+docker compose build redmine
+docker compose up -d
+docker compose down              # preserves named volumes
+docker compose restart
+docker compose logs -f --tail=200
+docker compose ps
+./scripts/healthcheck.sh
+./scripts/verify-deployment.sh   # versions, migrations, DMSF, persistence
 ```
 
 Never use `docker compose down -v` unless intentionally destroying all database and attachment data.
@@ -67,8 +71,8 @@ Never use `docker compose down -v` unless intentionally destroying all database 
 ## Database and plugin migrations
 
 ```bash
-make migrate            # explicit Redmine core migration
-make plugins-migrate    # explicit plugin migrations
+docker compose run --rm redmine bundle exec rake db:migrate RAILS_ENV=production
+docker compose run --rm redmine bundle exec rake redmine:plugins:migrate RAILS_ENV=production
 ```
 
 Run migrations first on a restored test copy and take a verified backup before production schema changes.
@@ -76,8 +80,8 @@ Run migrations first on a restored test copy and take a verified backup before p
 ## Backup and restore
 
 ```bash
-make backup
-make restore BACKUP=backups/2026-09-17_120000
+./scripts/backup.sh
+./scripts/restore.sh backups/2026-09-17_120000
 ```
 
 Restore is destructive to the configured destination and requires typed confirmation. See [Backup and restore](docs/BACKUP_RESTORE.md).
@@ -98,11 +102,11 @@ Export a logical database dump and the attachment files from the quiesced Redmin
 
 ## Offline deployment
 
-On an Internet-connected build host run `make offline-bundle`, transfer and verify the resulting image/source archives, then use `docker load` on the isolated host. Follow [Offline deployment](docs/OFFLINE_DEPLOYMENT.md).
+On an Internet-connected build host run `./scripts/prepare-offline-bundle.sh`, transfer and verify the resulting image/source archives, then use `docker load` on the isolated host. Follow [Offline deployment](docs/OFFLINE_DEPLOYMENT.md).
 
 ## Upgrade procedure
 
-Re-check Redmine/DMSF compatibility, restore the latest backup into a disposable environment, rebuild pinned images, run core then plugin migrations, execute `make verify` and browser workflow tests, and only then schedule production maintenance. See [Installation and upgrade](docs/INSTALLATION.md).
+Re-check Redmine/DMSF compatibility, restore the latest backup into a disposable environment, rebuild pinned images, run core then plugin migrations, execute `./scripts/verify-deployment.sh` and browser workflow tests, and only then schedule production maintenance. See [Installation and upgrade](docs/INSTALLATION.md).
 
 ## Documentation
 
@@ -118,9 +122,9 @@ Re-check Redmine/DMSF compatibility, restore the latest backup into a disposable
 
 - `docker compose config` reports a missing variable: populate every required `.env` value.
 - PostgreSQL is unhealthy: inspect `docker compose logs postgres`; changing init credentials after the volume exists does not alter existing roles.
-- Redmine reports pending migrations: run `make migrate` and `make plugins-migrate`, then `make restart`.
+- Redmine reports pending migrations: run the two migration commands above, then `docker compose restart`.
 - DMSF is missing: rebuild the image and inspect `docker compose exec redmine bundle check` and the plugin list command above.
-- Proxy returns 502/503: wait for the Redmine health check, then use `make health` and `make logs`.
+- Proxy returns 502/503: wait for the Redmine health check, then run `./scripts/healthcheck.sh` and `docker compose logs`.
 - Upload is rejected: Nginx defaults to 100 MiB; coordinate changes to `client_max_body_size` with Redmine's attachment limit.
 
 Before production, complete the manual checklist in [Installation](docs/INSTALLATION.md), perform a full backup/restore drill, test migration on an isolated copy, validate RBAC/workflows, configure TLS/SMTP, and establish monitoring and patch review.

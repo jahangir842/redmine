@@ -21,7 +21,7 @@ The WebDAV middleware is included, but WebDAV is disabled by default in DMSF set
 ## Migration and verification commands
 
 ```bash
-make plugins-migrate
+docker compose run --rm redmine bundle exec rake redmine:plugins:migrate RAILS_ENV=production
 docker compose exec redmine bundle exec rake redmine:plugins RAILS_ENV=production
 docker compose exec redmine bundle check
 ```

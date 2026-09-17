@@ -18,8 +18,17 @@ Image tags pin application/OS release versions but registry tags can technically
 1. Copy `.env.example` to `.env`, generate unique secrets, and set mode `0600`.
 2. Keep `REDMINE_BIND_ADDRESS=127.0.0.1` when another reverse proxy fronts this stack. Use a specific LAN address only when direct LAN HTTP is intended.
 3. Validate with `docker compose --env-file .env config`. Confirm no PostgreSQL `ports:` entry is present.
-4. Run `make install`. This builds the custom image, starts PostgreSQL, explicitly applies core and DMSF migrations, then starts Redmine and Nginx.
-5. Run `make health` and `make verify`, then log in. `make verify` deliberately recreates the Redmine container to prove attachment-volume persistence. Change the default administrator password immediately.
+4. Build and install with explicit Docker Compose commands:
+
+   ```bash
+   docker compose build redmine
+   docker compose up -d postgres
+   docker compose run --rm redmine bundle exec rake db:migrate RAILS_ENV=production
+   docker compose run --rm redmine bundle exec rake redmine:plugins:migrate RAILS_ENV=production
+   docker compose up -d
+   ```
+
+5. Run `./scripts/healthcheck.sh` and `./scripts/verify-deployment.sh`, then log in. The verification script deliberately recreates the Redmine container to prove attachment-volume persistence. Change the default administrator password immediately.
 6. Configure Administration settings, SMTP, canonical host/protocol, time zone, attachment size, roles, and projects.
 
 The first PostgreSQL initialization creates a dedicated non-superuser application role and database. `POSTGRES_USER` is only the cluster administrator. Changing `.env` later does not rotate credentials inside an existing database; use `ALTER ROLE`, then update `.env` in a controlled maintenance window.
@@ -40,7 +49,7 @@ Never expose the Compose frontend broadly while also trusting unfiltered forward
 1. Read Redmine and plugin release notes and re-check compatibility; never change only the Redmine base tag.
 2. Take and verify a backup. Restore it into a disposable test stack.
 3. Update pinned versions/checksums and rebuild. Do not reuse old plugin source.
-4. In the test stack run `make migrate`, then `make plugins-migrate`.
+4. In the test stack run the core `db:migrate` command, then `redmine:plugins:migrate`, using the explicit Docker Compose commands above.
 5. Start it, inspect logs, and execute functional, DMSF workflow, permissions, upload/download, and backup/restore tests.
 6. Schedule production downtime; take a fresh quiesced backup.
 7. Deploy the reviewed image, run the same explicit migrations, start, and validate.

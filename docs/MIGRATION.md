@@ -50,7 +50,7 @@ Use a separate host or unique Compose project, volumes, secrets, hostname, mail 
 ```bash
 cp .env.example .env
 # set unique secrets, COMPOSE_PROJECT_NAME=redmine-migration, MIGRATION_MODE=true
-make build
+docker compose build redmine
 docker compose up -d postgres
 ./scripts/migrate-old-redmine.sh /staging/redmine.dump /staging/redmine-files.tar.gz
 ```

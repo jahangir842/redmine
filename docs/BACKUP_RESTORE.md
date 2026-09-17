@@ -5,7 +5,7 @@ Redmine is only recoverable when the database and `/usr/src/redmine/files` are b
 ## Create a backup
 
 ```bash
-make backup
+./scripts/backup.sh
 ```
 
 The script stops Nginx and Redmine briefly, leaving PostgreSQL running, so application writes cannot make the database and files inconsistent. It creates a mode-0700 UTC-stamped directory containing:
@@ -25,7 +25,7 @@ The database uses PostgreSQL custom format (`pg_dump -Fc`). The script restarts 
 Prefer a separate Compose project/host. Configure a fresh `.env`, start PostgreSQL, then:
 
 ```bash
-make restore BACKUP=/secure/path/2026-09-17_120000
+./scripts/restore.sh /secure/path/2026-09-17_120000
 ```
 
 The script validates required files, SHA-256 checksums, and archive paths; displays the target; requires the exact word `RESTORE`; stops the application; drops/recreates only the configured application database; replaces attachments; applies target core/plugin migrations; starts the stack; and runs health checks.

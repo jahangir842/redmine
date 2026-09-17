@@ -20,18 +20,16 @@ RUN set -eux; \
     tar -xzf /tmp/redmine_dmsf.tar.gz --strip-components=1 -C plugins/redmine_dmsf; \
     rm /tmp/redmine_dmsf.tar.gz; \
     chown -R redmine:redmine plugins/redmine_dmsf; \
-    savedAptMark="$(apt-mark showmanual)"; \
+    grep -Fq "version '${DMSF_VERSION}'" plugins/redmine_dmsf/init.rb
+
+RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends build-essential; \
-    rm -rf /var/lib/apt/lists/*; \
     gosu redmine bundle config --local without 'development test xapian'; \
     gosu redmine bundle install --jobs "$(nproc)"; \
     gosu redmine bundle check; \
-    apt-mark auto '.*' > /dev/null; \
-    test -z "$savedAptMark" || apt-mark manual $savedAptMark; \
-    apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
-    rm -rf /var/lib/apt/lists/* /home/redmine/.bundle/cache; \
-    test "$(sed -n \"s/.*version '\\([^']*\\)'.*/\\1/p\" plugins/redmine_dmsf/init.rb | head -1)" = "$DMSF_VERSION"
+    apt-get purge -y --auto-remove build-essential; \
+    rm -rf /var/lib/apt/lists/* /home/redmine/.bundle/cache
 
 COPY --chown=redmine:redmine docker/redmine/additional_environment.rb config/additional_environment.rb
 
