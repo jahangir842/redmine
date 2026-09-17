@@ -29,7 +29,7 @@ cd redmine-deployment
 cp .env.example .env
 # generate/edit unique production secrets locally; chmod 600 .env
 docker compose config
-docker compose up -d postgres
+docker compose up -d --wait postgres
 docker compose run --rm redmine bundle exec rake db:migrate RAILS_ENV=production
 docker compose run --rm redmine bundle exec rake redmine:plugins:migrate RAILS_ENV=production
 docker compose up -d

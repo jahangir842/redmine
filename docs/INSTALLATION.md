@@ -22,7 +22,7 @@ Image tags pin application/OS release versions but registry tags can technically
 
    ```bash
    docker compose build redmine
-   docker compose up -d postgres
+   docker compose up -d --wait postgres
    docker compose run --rm redmine bundle exec rake db:migrate RAILS_ENV=production
    docker compose run --rm redmine bundle exec rake redmine:plugins:migrate RAILS_ENV=production
    docker compose up -d
@@ -43,7 +43,7 @@ If—and only if—this is a new test installation with no database or attachmen
 docker compose ps
 docker compose config --volumes
 docker compose down -v
-docker compose up -d postgres
+docker compose up -d --wait postgres
 docker compose logs postgres
 docker compose exec postgres sh -ec 'PGPASSWORD="$REDMINE_DB_PASSWORD" psql -h 127.0.0.1 -U "$REDMINE_DB_USERNAME" -d "$REDMINE_DB_DATABASE" -tAc "select current_user, current_database()"'
 ```

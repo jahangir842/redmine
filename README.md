@@ -38,7 +38,7 @@ chmod 600 .env
 # edit .env and replace every CHANGE_ME value
 docker compose --env-file .env config
 docker compose build redmine
-docker compose up -d postgres
+docker compose up -d --wait postgres
 docker compose run --rm redmine bundle exec rake db:migrate RAILS_ENV=production
 docker compose run --rm redmine bundle exec rake redmine:plugins:migrate RAILS_ENV=production
 docker compose up -d
