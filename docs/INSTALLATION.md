@@ -50,6 +50,14 @@ docker compose exec postgres sh -ec 'PGPASSWORD="$REDMINE_DB_PASSWORD" psql -h 1
 
 The expected final output identifies the configured Redmine user and database. Do not use `down -v` after any data has been entered; rotate the existing role password or restore into a controlled destination instead.
 
+If the first initialization stopped partway through and PostgreSQL subsequently skipped its initialization directory, the database bootstrap script is idempotent and can be rerun explicitly after reviewing the logs:
+
+```bash
+docker compose exec postgres /docker-entrypoint-initdb.d/10-redmine-db.sh
+```
+
+This creates a missing application role/database or reconciles their owner and role password with the container environment. It does not drop an existing database.
+
 ## HTTPS and upstream proxy
 
 The included Nginx intentionally serves internal HTTP only and accepts `X-Forwarded-Proto` from a trusted upstream. Terminate TLS at a managed host Nginx, load balancer, Cloudflare tunnel/proxy, or internal reverse proxy, then forward to `127.0.0.1:${REDMINE_PORT}`. The upstream should:
