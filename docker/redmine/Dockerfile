@@ -22,7 +22,7 @@ RUN set -eux; \
     chown -R redmine:redmine plugins/redmine_dmsf; \
     savedAptMark="$(apt-mark showmanual)"; \
     apt-get update; \
-    apt-get install -y --no-install-recommends gcc make; \
+    apt-get install -y --no-install-recommends build-essential; \
     rm -rf /var/lib/apt/lists/*; \
     gosu redmine bundle config --local without 'development test xapian'; \
     gosu redmine bundle install --jobs "$(nproc)"; \
