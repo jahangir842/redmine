@@ -412,6 +412,72 @@ credentials, an upstream reverse-proxy configuration, or Docker images. Protect
 those separately. In particular, retain `REDMINE_SECRET_KEY_BASE` in a secure
 credential store; do not rely on the application host as its only copy.
 
+### Schedule backups with cron
+
+Schedule the backup as the same unprivileged Linux user that can already run
+`docker compose` (in this installation, `ubuntu`). Do not use root's crontab.
+First create a private location for the lock and log:
+
+```bash
+mkdir -p /home/ubuntu/.local/state/redmine-backup
+chmod 700 /home/ubuntu/.local/state/redmine-backup
+```
+
+Open that user's crontab:
+
+```bash
+crontab -e
+```
+
+Add the following entries. This runs a backup every day at 02:00 in the
+server's local time. `flock` prevents a second backup from starting if the
+previous one is still running:
+
+```cron
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=""
+
+0 2 * * * /usr/bin/flock -n /home/ubuntu/.local/state/redmine-backup/backup.lock /home/ubuntu/projects/redmine/scripts/backup.sh >> /home/ubuntu/.local/state/redmine-backup/backup.log 2>&1
+```
+
+Replace `/home/ubuntu/projects/redmine` if the repository is installed
+elsewhere. The cron service must be enabled, and the scheduled user must be
+able to run `docker compose` without `sudo`:
+
+```bash
+sudo systemctl enable --now cron
+docker compose ps
+crontab -l
+```
+
+After the first scheduled run, inspect the log and verify the newest recovery
+point:
+
+```bash
+tail -n 100 /home/ubuntu/.local/state/redmine-backup/backup.log
+latest="$(find /home/ubuntu/projects/redmine/backups -mindepth 1 -maxdepth 1 \
+  -type d -name '20??-??-??_??????' -printf '%f\n' | sort | tail -1)"
+(cd "/home/ubuntu/projects/redmine/backups/$latest" && \
+  sha256sum --check --strict checksums.sha256)
+```
+
+The backup causes a short Redmine interruption while the application and proxy
+are stopped for consistency, so choose a quiet time. Monitor the log or arrange
+cron mail rather than assuming a scheduled job succeeded.
+
+Local retention may be added only after backups are copied to independent,
+encrypted storage and those copies are verified. For example, the following
+separate entry deletes only timestamp-named local recovery points older than 30
+days:
+
+```cron
+15 3 * * * /usr/bin/find /home/ubuntu/projects/redmine/backups -mindepth 1 -maxdepth 1 -type d -name '20??-??-??_??????' -mtime +30 -exec /usr/bin/rm -rf -- {} +
+```
+
+Test a restore periodically; checksum verification alone does not prove that a
+backup meets the recovery requirements.
+
 ## Restore on another system
 
 Backups produced by this current PostgreSQL installation can be restored
