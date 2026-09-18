@@ -49,6 +49,11 @@ services:
       REDMINE_NO_DB_MIGRATE: "1"
       RAILS_ENV: production
       RAILS_LOG_TO_STDOUT: "true"
+      # The custom image contains every required gem. Never let the upstream
+      # entrypoint contact Rubygems or modify the locked dependency set.
+      BUNDLE_LOCAL: "true"
+      BUNDLE_FROZEN: "true"
+      BUNDLE_ALLOW_OFFLINE_INSTALL: "true"
     volumes:
       - redmine_files:/usr/src/redmine/files
     networks:

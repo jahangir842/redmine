@@ -187,8 +187,9 @@ docker compose build --pull redmine
 ```
 
 The Redmine build downloads the pinned DMSF release, verifies its SHA-256
-checksum, and installs all Ruby dependencies into the image. Container startup
-does not run `bundle install` and therefore does not require Internet access.
+checksum, and installs all Ruby dependencies into the image. The upstream
+entrypoint checks dependencies at startup, but Bundler is forced into local,
+frozen mode: it cannot contact Rubygems or change the locked dependency set.
 
 Confirm the expected image is present:
 
@@ -597,7 +598,9 @@ On an Internet-connected machine, prepare an image and source bundle:
 Transfer the resulting bundle and checksums to the isolated server, verify it,
 and load its Docker image archive with `docker load`. After the images and
 configuration are present, startup and normal operation do not require
-Internet access. Follow [Offline deployment](docs/OFFLINE_DEPLOYMENT.md).
+Internet access. The restore script also checks that every image is present and
+uses Compose's `--pull never` policy before altering data. Follow
+[Offline deployment](docs/OFFLINE_DEPLOYMENT.md).
 
 ## Troubleshooting
 

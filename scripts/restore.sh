@@ -23,15 +23,28 @@ fi
 command -v docker >/dev/null 2>&1 || { echo >&2 "docker is required"; exit 1; }
 [[ -f .env ]] || { echo >&2 "Missing .env"; exit 1; }
 
+missing_images=0
+while IFS= read -r image; do
+  [[ -n "$image" ]] || continue
+  if ! docker image inspect "$image" >/dev/null 2>&1; then
+    echo >&2 "Missing required local image: $image"
+    missing_images=1
+  fi
+done < <(docker compose config --images | sort -u)
+if (( missing_images )); then
+  echo >&2 "Restore stopped before changing data. Load the complete offline image bundle first."
+  exit 1
+fi
+
 echo "WARNING: this will replace the configured Redmine database and every attachment."
-echo "Target compose project: $(docker compose config --format json 2>/dev/null | sed -n 's/.*"name":"\([^"]*\)".*/\1/p' | head -1 || echo unknown)"
+echo "Target compose project: $(docker compose config --format json 2>/dev/null | sed -n 's/^[[:space:]]*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || echo unknown)"
 echo "Backup: $backup_dir"
 if (( ! assume_yes )); then
   read -r -p "Type RESTORE to continue: " answer
   [[ "$answer" == RESTORE ]] || { echo "Restore cancelled."; exit 1; }
 fi
 
-docker compose up -d postgres
+docker compose up --pull never -d postgres
 until docker compose exec -T postgres sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >/dev/null 2>&1; do sleep 2; done
 docker compose stop nginx redmine >/dev/null 2>&1 || true
 
@@ -45,14 +58,14 @@ docker compose exec -T postgres sh -eu -c \
   < "$backup_dir/redmine.dump"
 
 echo "Replacing the attachments volume..."
-docker compose run --rm --no-deps -T --entrypoint sh redmine -eu -c \
+docker compose run --rm --pull never --no-deps -T --entrypoint sh redmine -eu -c \
   'find /usr/src/redmine/files -mindepth 1 -delete; tar -xzf - -C /usr/src/redmine/files --no-same-owner; chown -R redmine:redmine /usr/src/redmine/files' \
   < "$backup_dir/redmine-files.tar.gz"
 
 echo "Applying target-version migrations..."
-docker compose run --rm -T redmine bundle exec rake db:migrate RAILS_ENV=production
-docker compose run --rm -T redmine bundle exec rake redmine:plugins:migrate RAILS_ENV=production
-docker compose up -d
+docker compose run --rm --pull never -T redmine bundle exec rake db:migrate RAILS_ENV=production
+docker compose run --rm --pull never -T redmine bundle exec rake redmine:plugins:migrate RAILS_ENV=production
+docker compose up --pull never -d
 
 echo "Waiting for service health..."
 if ! "$ROOT_DIR/scripts/healthcheck.sh" --wait; then

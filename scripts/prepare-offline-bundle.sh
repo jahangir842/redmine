@@ -17,6 +17,13 @@ echo "Pulling pinned upstream images and building the custom Redmine image..."
 docker compose pull postgres nginx
 docker compose build --pull redmine
 
+echo "Verifying that the custom image has a complete offline gem set..."
+redmine_image="$(docker compose images -q redmine)"
+[[ -n "$redmine_image" ]] || { echo >&2 "Could not resolve the Redmine image name"; exit 1; }
+docker run --rm --network none --entrypoint sh \
+  -e BUNDLE_LOCAL=true -e BUNDLE_FROZEN=true -e BUNDLE_ALLOW_OFFLINE_INSTALL=true \
+  "$redmine_image" -c 'bundle check'
+
 mapfile -t images < <(docker compose config --images | sort -u)
 ((${#images[@]} >= 3)) || { echo >&2 "Expected at least three images"; exit 1; }
 
