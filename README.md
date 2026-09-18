@@ -71,7 +71,11 @@ scripts with `sudo`, as in `sudo ./scripts/healthcheck.sh`.
 ## Fresh installation on a new system
 
 This section creates an empty Redmine installation. It does not import the old
-Redmine 4.2.5 database.
+Redmine 4.2.5 database. If the objective is to move or recover an existing
+installation from a backup created by `scripts/backup.sh`, complete steps 1–3
+to obtain and build the repository, then skip to
+[Restore on another system](#restore-on-another-system). Do not initialize an
+empty application schema first.
 
 ### 1. Obtain the repository
 
@@ -394,17 +398,41 @@ Copy backups to encrypted storage outside this Docker host and test restoration
 regularly. A backup remaining only on the application host is not sufficient
 for disaster recovery. See [Backup and restore](docs/BACKUP_RESTORE.md).
 
+Each backup directory is one indivisible recovery point: keep its database
+dump, attachment archive, metadata, and checksum file together. Verify it
+before and after transferring it:
+
+```bash
+cd backups/YYYY-MM-DD_HHMMSS
+sha256sum --check --strict checksums.sha256
+```
+
+The backup does **not** contain `.env`, TLS certificates, SMTP/identity-provider
+credentials, an upstream reverse-proxy configuration, or Docker images. Protect
+those separately. In particular, retain `REDMINE_SECRET_KEY_BASE` in a secure
+credential store; do not rely on the application host as its only copy.
+
 ## Restore on another system
 
-To move the current installation rather than create an empty Redmine:
+Backups produced by this current PostgreSQL installation can be restored
+directly; the old MariaDB-to-PostgreSQL conversion does not need to be repeated.
+To move or recover the current installation:
 
-1. Install Docker and obtain this same repository revision.
-2. Copy the original `.env` securely, especially
-   `REDMINE_SECRET_KEY_BASE`. If intentionally rotating database passwords,
-   complete and test that procedure separately.
-3. Build or load the exact image versions.
-4. Copy one complete backup directory into `backups/`.
-5. Validate Compose and start PostgreSQL:
+1. Install Docker and obtain the same repository revision used to create the
+   backup.
+2. Copy the original `.env` securely, or create a new one from `.env.example`.
+   Preserve the original `REDMINE_SECRET_KEY_BASE`. On a genuinely fresh
+   destination, new database passwords are allowed because PostgreSQL will
+   create the roles with those new passwords before importing the dump. Host,
+   bind-address, and port settings may also be adapted for the new server.
+3. Keep `COMPOSE_PROJECT_NAME` stable after the first start; changing it later
+   selects different Docker volumes.
+4. Build or load the exact pinned images.
+5. Copy one complete backup directory into `backups/` without unpacking either
+   archive, and verify `checksums.sha256`.
+6. Confirm that this is a fresh destination. Never delete or overwrite an
+   existing destination without first taking its own backup.
+7. Validate Compose and start only PostgreSQL:
 
 ```bash
 docker compose config --quiet
@@ -412,7 +440,9 @@ docker compose build redmine
 docker compose up -d --wait --wait-timeout 120 postgres
 ```
 
-6. Restore the chosen backup:
+8. Restore the chosen backup. Do not run the empty-install migration commands
+   first; the restore script imports the database and then applies all required
+   core and plugin migrations itself:
 
 ```bash
 ./scripts/restore.sh backups/YYYY-MM-DD_HHMMSS
@@ -422,10 +452,21 @@ The restore command validates checksums and requires typing `RESTORE` before it
 replaces the configured destination database and attachments. Afterward:
 
 ```bash
+./scripts/healthcheck.sh --wait
 ./scripts/verify-deployment.sh
 ```
 
-Complete browser-level validation before declaring the restored system usable.
+9. Test login, projects, issues, permissions, representative attachments, DMSF,
+   SMTP, and external integrations in the browser.
+10. Once accepted, create a fresh backup on the destination and copy it to
+    independent encrypted storage:
+
+```bash
+./scripts/backup.sh
+```
+
+Do not delete the source system or the pre-move backup until browser-level
+validation and stakeholder acceptance are complete.
 
 ## Database and plugin migrations
 
