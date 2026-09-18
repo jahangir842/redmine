@@ -13,12 +13,14 @@ docker compose exec -T redmine bundle exec rails --version
 docker compose exec -T postgres postgres --version
 
 echo "== DMSF registration =="
-plugin_list="$(docker compose exec -T redmine bundle exec rake redmine:plugins RAILS_ENV=production)"
+plugin_list="$(docker compose exec -T redmine sh -lc \
+  'export SECRET_KEY_BASE="$REDMINE_SECRET_KEY_BASE"; exec bundle exec rails runner -e production "puts Redmine::Plugin.registered_plugins.keys"')"
 printf '%s\n' "$plugin_list"
 grep -qi 'DMSF\|redmine_dmsf' <<<"$plugin_list" || { echo >&2 "DMSF was not registered"; exit 1; }
 
 echo "== Core migration status =="
-migration_status="$(docker compose exec -T redmine bundle exec rake db:migrate:status RAILS_ENV=production)"
+migration_status="$(docker compose exec -T redmine sh -lc \
+  'export SECRET_KEY_BASE="$REDMINE_SECRET_KEY_BASE"; exec bundle exec rake db:migrate:status RAILS_ENV=production')"
 printf '%s\n' "$migration_status"
 if grep -Eq '^[[:space:]]*down[[:space:]]' <<<"$migration_status"; then
   echo >&2 "Pending core migrations found"
