@@ -49,7 +49,7 @@ a volume.
 
 Prepare a Linux host with:
 
-- Docker Engine 24 or newer
+- Docker Engine 24 or newer (https://docs.docker.com/engine/install/ubuntu/)
 - Docker Compose v2 (`docker compose`, not legacy `docker-compose`)
 - Git, Bash, OpenSSL, `sha256sum`, and `tar`
 - At least 2 CPU cores and 4 GiB RAM
