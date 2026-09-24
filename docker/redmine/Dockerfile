@@ -25,9 +25,11 @@ RUN set -eux; \
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends build-essential; \
+    printf 'production:\n  adapter: postgresql\n' > config/database.yml; \
     gosu redmine bundle config --local without 'development test xapian'; \
     gosu redmine bundle install --jobs "$(nproc)"; \
     gosu redmine bundle check; \
+    rm config/database.yml; \
     apt-get purge -y --auto-remove build-essential; \
     rm -rf /var/lib/apt/lists/* /home/redmine/.bundle/cache
 
