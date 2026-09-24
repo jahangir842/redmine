@@ -18,7 +18,8 @@ docker compose pull postgres nginx
 docker compose build --pull redmine
 
 echo "Verifying that the custom image has a complete offline gem set..."
-redmine_image="$(docker compose images -q redmine)"
+redmine_image="$(docker compose config --environment | sed -n 's/^REDMINE_IMAGE=//p' | tail -n 1)"
+redmine_image="${redmine_image:-local/redmine-dmsf:6.1.4-dmsf4.1.3}"
 [[ -n "$redmine_image" ]] || { echo >&2 "Could not resolve the Redmine image name"; exit 1; }
 docker run --rm --network none --entrypoint sh \
   -e BUNDLE_LOCAL=true -e BUNDLE_FROZEN=true -e BUNDLE_ALLOW_OFFLINE_INSTALL=true \
