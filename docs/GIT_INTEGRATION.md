@@ -121,6 +121,85 @@ Referencing keywords associate a commit with an issue. Fixing keywords can
 also update the issue status and percentage done according to the configured
 settings. Push the commit, update the mirror, and let Redmine import changesets.
 
+## Add a new repository to another Redmine project
+
+Once the initial setup works, reuse the existing directory mount. No Compose
+change or container restart is needed for additional mirrors created under
+`/var/lib/redmine/repos`.
+
+The example below connects `OWNER/NEW_REPO` to another project. Replace those
+placeholders and use a unique mirror directory name for each repository.
+
+### 1. Create the new mirror
+
+Run on the host as `ubuntu`, without `sudo`:
+
+```bash
+git clone --mirror git@github.com:OWNER/NEW_REPO.git \
+  /var/lib/redmine/repos/new-repo.git
+```
+
+If you already made a regular working clone, you can instead create the mirror
+from that clone and then point it at GitHub for future updates:
+
+```bash
+git clone --mirror --no-hardlinks /absolute/path/to/NEW_REPO \
+  /var/lib/redmine/repos/new-repo.git
+
+git -C /var/lib/redmine/repos/new-repo.git remote set-url origin \
+  git@github.com:OWNER/NEW_REPO.git
+
+git -C /var/lib/redmine/repos/new-repo.git remote update --prune
+```
+
+Choose one of these approaches. Keep your regular clone for development; use
+the separate mirror for Redmine. Uncommitted working files are not included.
+
+### 2. Verify access inside Docker
+
+From `/home/ubuntu/projects/redmine`, run:
+
+```bash
+sudo docker compose exec --user redmine redmine \
+  git --git-dir=/var/lib/redmine/repos/new-repo.git log -1 --oneline
+```
+
+For a repository with commits, this should print the latest commit. If it
+fails, resolve the path or permissions error before adding it in Redmine.
+
+### 3. Add it to the intended Redmine project
+
+1. Open the **other project** that should use this repository.
+2. Enable **Repository** under **Settings → Modules**, if necessary.
+3. Open **Settings → Repositories → New repository**.
+4. Select **Git** and enter `/var/lib/redmine/repos/new-repo.git` as the path.
+5. If prompted, choose a unique repository identifier within that project.
+   Select **Main repository** if this should be the project's default repository.
+6. Save and open that project's **Repository** tab to check files and commits.
+
+Adding a directory on the host makes it visible through the mount, but does
+not register it automatically in Redmine. Repeat these UI steps for each
+project/repository association.
+
+### 4. Update the new repository
+
+Fetch new commits on the host:
+
+```bash
+git -C /var/lib/redmine/repos/new-repo.git remote update --prune
+```
+
+For automatic updates, add a separate entry in `ubuntu`'s `crontab -e`, using
+the cron environment described in section 4:
+
+```cron
+*/5 * * * * /usr/bin/flock -n /var/lib/redmine/repos/new-repo.fetch.lock /usr/bin/git -C /var/lib/redmine/repos/new-repo.git remote update --prune >> /var/lib/redmine/repos/new-repo.fetch.log 2>&1
+```
+
+Each mirror needs its own fetch schedule and the host user needs GitHub access
+to each remote. Open the Repository tab after fetching, or use the explicit
+changeset import command from section 4.
+
 ## Troubleshooting
 
 ### Cannot create leading directories
