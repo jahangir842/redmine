@@ -56,6 +56,7 @@ services:
       BUNDLE_ALLOW_OFFLINE_INSTALL: "true"
     volumes:
       - redmine_files:/usr/src/redmine/files
+      - /var/lib/redmine/repos:/var/lib/redmine/repos:ro
     networks:
       - frontend
       - backend
